@@ -1,0 +1,69 @@
+import os
+import json
+import shutil
+from subprocess import run, PIPE
+import argparse
+
+
+GAME_DIR_PATTERN = "game"
+GAME_CODE_EXTENSION = ".go"
+GAME_COMPILE_COMMAND = ["go", "build"]
+
+
+def find_game_paths(source):
+    game_paths = [os.path.join(source, directory) for directory in os.listdir(source)
+                  if GAME_DIR_PATTERN in directory.lower() and os.path.isdir(os.path.join(source, directory))]
+    return game_paths
+
+
+def get_game_names(paths, to_strip):
+    return [os.path.basename(path).replace(to_strip, "") for path in paths]
+
+
+def copy_dir(source, dest):
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    shutil.copytree(source, dest)
+
+
+def compile_game_code(path):
+    code_files = [file for file in os.listdir(path) if file.endswith(GAME_CODE_EXTENSION)]
+    if not code_files:
+        return
+    command = GAME_COMPILE_COMMAND + code_files
+    result = run(command, cwd=path, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    return result
+
+
+def make_metadata_file(path, game_names):
+    data = {
+        "gameNames": game_names,
+        "numberOfGames": len(game_names)
+    }
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+def main(source, target):
+    game_paths = find_game_paths(source)
+    game_names = get_game_names(game_paths, "_game")
+
+    os.makedirs(target, exist_ok=True)
+
+    for src, name in zip(game_paths, game_names):
+        dest = os.path.join(target, name)
+        copy_dir(src, dest)
+        compile_result = compile_game_code(dest)
+        if compile_result.returncode != 0:
+            print(f"Compilation failed for {name}: {compile_result.stderr}")
+
+    make_metadata_file(os.path.join(target, "metadata.json"), game_names)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Copy game directories, compile code, and create metadata file.")
+    parser.add_argument("source", help="Source directory containing game directories.")
+    parser.add_argument("target", help="Target directory to copy game directories and create metadata file.")
+    args = parser.parse_args()
+    
+    main(args.source, args.target)
